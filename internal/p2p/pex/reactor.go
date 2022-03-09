@@ -424,9 +424,9 @@ func (r *Reactor) markPeerRequest(peer types.NodeID) error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 	if lastRequestTime, ok := r.lastReceivedRequests[peer]; ok {
-		if time.Now().Before(lastRequestTime.Add(minReceiveRequestInterval)) {
-			return fmt.Errorf("peer sent a request too close after a prior one. Minimum interval: %v",
-				minReceiveRequestInterval)
+		if d := time.Since(lastRequestTime); d < minReceiveRequestInterval {
+			return fmt.Errorf("peer %v sent PEX request too soon (%v < minimum %v)",
+				peer, d, minReceiveRequestInterval)
 		}
 	}
 	r.lastReceivedRequests[peer] = time.Now()
