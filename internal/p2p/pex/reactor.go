@@ -156,16 +156,6 @@ func (r *Reactor) OnStop() {}
 // processPexCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the pexCh.
 func (r *Reactor) processPexCh(ctx context.Context) {
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-	r.mtx.Lock()
-	var (
-		duration = r.calculateNextRequestTime()
-		err      error
-	)
-	r.mtx.Unlock()
-
 	incoming := make(chan *p2p.Envelope)
 	go func() {
 		defer close(incoming)
@@ -179,8 +169,16 @@ func (r *Reactor) processPexCh(ctx context.Context) {
 		}
 	}()
 
+	// Initially, we will request peers quickly to bootstrap.  This duration
+	// will be adjusted upward as knowledge of the network grows.
+	var nextPeerRequest = minReceiveRequestInterval
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
+	var err error
 	for {
-		timer.Reset(duration)
+		timer.Reset(nextPeerRequest)
 
 		select {
 		case <-ctx.Done():
@@ -188,7 +186,7 @@ func (r *Reactor) processPexCh(ctx context.Context) {
 
 		// outbound requests for new peers
 		case <-timer.C:
-			duration, err = r.sendRequestForPeers(ctx)
+			nextPeerRequest, err = r.sendRequestForPeers(ctx)
 			if err != nil {
 				return
 			}
@@ -198,7 +196,7 @@ func (r *Reactor) processPexCh(ctx context.Context) {
 			if !ok {
 				return
 			}
-			duration, err = r.handleMessage(ctx, r.pexCh.ID, envelope)
+			nextPeerRequest, err = r.handleMessage(ctx, r.pexCh.ID, envelope)
 			if err != nil {
 				r.logger.Error("failed to process message", "ch_id", r.pexCh.ID, "envelope", envelope, "err", err)
 				if serr := r.pexCh.SendError(ctx, p2p.PeerError{
